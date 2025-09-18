@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "icon": "tauri icon battery-status.png",
+    "desktop": "tauri dev"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.13",

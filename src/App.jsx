@@ -32,16 +32,50 @@ async function enqueueNotification(title, body) {
   if (!(await checkPermission())) {
     return;
   }
-  console.log(title,body)
-  sendNotification({ title, body });
+  sendNotification({
+    title,
+    body
+  });
   speak(`${title}. ${body}`);
 }
 import { enable as enableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart';
 import "./App.css";
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  // const [batteryHealth, setBatteryHealth] = useState(null);
+  const [batteryCondition, setBatteryCondition] = useState(null);
+  // Polling status kesehatan baterai (battery health) tiap 10 menit
+  useEffect(() => {
+   
+    // Polling battery condition (Normal/Service Recommended) tiap 10 menit
+    const conditionInterval = setInterval(async () => {
+      try {
+        const condition = await invoke("get_battery_condition");
+        setBatteryCondition(condition);
+      } catch (e) {
+        setBatteryCondition(null);
+      }
+    }, 600000);
+    (async () => {
+      try {
+        const condition = await invoke("get_battery_condition");
+        setBatteryCondition(condition);
+      } catch (e) {
+        setBatteryCondition(null);
+      }
+    })();
+    return () => {
+      clearInterval(conditionInterval);
+    };
+  }, []);
+  // Fungsi untuk menilai status baterai
+  function getBatteryStatus(percent) {
+    if (percent === null || percent === undefined) return "Tidak terdeteksi";
+    if (percent > 80) return "Bagus";
+    if (percent > 39) return "Cukup";
+    if (percent > 20) return "Jelek";
+    return "Buruk";
+  }
   const [battery, setBattery] = useState(null);
   const [notified, setNotified] = useState(false);
   const [charging, setCharging] = useState(null);
@@ -52,33 +86,31 @@ function App() {
     // Aktifkan autostart aplikasi
     (async () => {
       const enabled = await isAutostartEnabled();
+        const percent = await invoke("get_battery_percentage");
+        setBattery(percent);
       if (!enabled) {
         await enableAutostart();
       }
     })();
   }, []);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
-
+  
+  // Polling status baterai tiap 10 menit untuk notifikasi otomatis
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
         const percent = await invoke("get_battery_percentage");
         setBattery(percent);
+        console.log(percent,'percent')
         const isCharging = await invoke("is_charging");
-        console.log(isCharging)
         setCharging(isCharging);
-        if (percent <= 39 && !notified) {
+        if (percent < 39 && !notified) {
           enqueueNotification(
             "Baterai MacBook rendah",
             `Baterai tinggal ${Math.round(percent)}%. Segera cas laptop!`
           );
           setNotified(true);
         }
-        // Notifikasi cabut charger jika baterai > 80% dan charger terpasang
         if (percent > 80 && isCharging && !notified) {
           enqueueNotification(
             "Boleh cabut charger",
@@ -86,20 +118,37 @@ function App() {
           );
           setNotified(true);
         }
-        if ((percent <= 39 || (percent > 39 && percent <= 80) || !isCharging) && notified) {
+        // Matikan notifikasi jika charger terpasang
+        if (isCharging && notified) {
+          setNotified(false);
+        } else if ((percent <= 39 || (percent > 39 && percent <= 80) || !isCharging) && notified) {
           setNotified(false);
         }
       } catch (e) {
         setBattery(null);
         setCharging(null);
       }
-  }, 60000); // cek setiap 1 menit
+    }, 100); // cek setiap 10 menit
     return () => clearInterval(interval);
   }, [notified]);
 
+  // Polling status casan (charging) tiap 5 detik (realtime)
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const isCharging = await invoke("is_charging");
+        setCharging(isCharging);
+      } catch (e) {
+        setCharging(null);
+      }
+    }, 5000); // cek setiap 5 detik
+    return () => clearInterval(interval);
+  }, []);
+
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-100 to-indigo-200 font-sans">
-      <div className="bg-white/80 shadow-xl rounded-2xl w-full flex flex-col items-center">
+      <div className="bg-white/80 shadow-xl  w-full flex flex-col items-center">
         <h1 className="text-3xl font-bold text-indigo-700 mb-2 tracking-tight">Battery Notifikasi</h1>
         <p className="text-gray-500 mb-6">Perawatan Baterai MacBook</p>
 
@@ -108,6 +157,10 @@ function App() {
             <span className="text-lg font-semibold text-gray-700">Status Baterai:</span>
             <span className={`text-xl font-bold px-3 py-1 rounded-full ${battery !== null && battery <= 39 ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'}`}>
               {battery !== null ? `${Math.round(battery)}%` : "Tidak terdeteksi"}
+            </span>
+          
+            <span className={`ml-3 text-xs font-medium px-2 py-1 rounded ${batteryCondition === 'Normal' ? 'bg-green-100 text-green-700' : batteryCondition ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'}`}>
+              {batteryCondition ? `Condition: ${batteryCondition}` : "Condition: Tidak terdeteksi"}
             </span>
           </div>
           <div className="flex items-center gap-2">
