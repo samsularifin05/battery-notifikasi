@@ -32,14 +32,16 @@ fn is_audio_enabled() -> bool {
 
 #[tauri::command]
 fn send_native_notification(title: String, body: String) -> Result<(), String> {
-    // Gunakan script yang lebih sederhana tanpa bundle identifier
+    // Gunakan AppleScript dengan app identifier untuk menampilkan icon app
     let script = format!(
-        r#"display notification "{}" with title "{}""#,
+        r#"tell application id "com.samsularifin.batrey-app-nitifikasi"
+            display notification "{}" with title "{}" subtitle "🔋 Battery Monitor" sound name "default"
+        end tell"#,
         body.replace("\"", "\\\""), 
         title.replace("\"", "\\\"")
     );
     
-    println!("Executing AppleScript: {}", script);
+    println!("Executing AppleScript with app identifier: {}", script);
     
     let output = Command::new("osascript")
         .arg("-e")
@@ -50,12 +52,31 @@ fn send_native_notification(title: String, body: String) -> Result<(), String> {
     println!("AppleScript output: {:?}", output);
     
     if output.status.success() {
-        println!("✅ Native notification sent successfully");
+        println!("✅ Native notification with app icon sent successfully");
         Ok(())
     } else {
-        let error_msg = String::from_utf8_lossy(&output.stderr);
-        println!("❌ AppleScript failed: {}", error_msg);
-        Err(format!("AppleScript failed: {}", error_msg))
+        // Fallback ke notifikasi biasa jika app identifier gagal
+        println!("App identifier failed, falling back to basic notification");
+        let fallback_script = format!(
+            r#"display notification "{}" with title "{}" subtitle "🔋" sound name "default""#,
+            body.replace("\"", "\\\""), 
+            title.replace("\"", "\\\"")
+        );
+        
+        let fallback_output = Command::new("osascript")
+            .arg("-e")
+            .arg(&fallback_script)
+            .output()
+            .map_err(|e| format!("Failed to run fallback osascript: {}", e))?;
+        
+        if fallback_output.status.success() {
+            println!("✅ Fallback notification sent successfully");
+            Ok(())
+        } else {
+            let error_msg = String::from_utf8_lossy(&fallback_output.stderr);
+            println!("❌ Both notification methods failed: {}", error_msg);
+            Err(format!("Notification failed: {}", error_msg))
+        }
     }
 }
 
