@@ -71,8 +71,22 @@ pub fn run() {
             let window_for_tray = window.clone();
             let app_handle = app.handle().clone();
 
-            // Sembunyikan window saat aplikasi pertama kali dijalankan
-            window.hide().unwrap();
+            // Show window saat pertama kali install, hide setelah autostart aktif
+            let is_first_run = !std::path::Path::new(&format!("{}/.battery-notif-configured", std::env::var("HOME").unwrap_or_default())).exists();
+            
+            if is_first_run {
+                // Tampilkan window untuk konfigurasi pertama
+                let _ = window.show();
+                let _ = window.set_focus();
+                
+                // Buat file marker bahwa app sudah dikonfigurasi
+                if let Ok(home) = std::env::var("HOME") {
+                    let _ = std::fs::write(format!("{}/.battery-notif-configured", home), "configured");
+                }
+            } else {
+                // Hide window jika bukan first run
+                window.hide().unwrap();
+            }
 
             window.on_window_event(move |event| {
                 match event {

@@ -85,25 +85,35 @@ function App() {
     // Aktifkan autostart aplikasi
     (async () => {
       const enabled = await isAutostartEnabled();
-        const percent = await invoke("get_battery_percentage");
-        setBattery(percent);
+      const percent = await invoke("get_battery_percentage");
+      setBattery(percent);
+      
       if (!enabled) {
         await enableAutostart();
+        // Tampilkan notifikasi bahwa autostart telah diaktifkan
+        enqueueNotification(
+          "Battery Notifikasi Aktif",
+          "Aplikasi akan berjalan otomatis saat laptop restart. Aplikasi sekarang berjalan di background."
+        );
       }
     })();
   }, []);
 
   
-  // Polling status baterai tiap 10 menit untuk notifikasi otomatis
+  // Polling status baterai dan charging realtime
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
         const percent = await invoke("get_battery_percentage");
-        setBattery(percent);
-        console.log(percent,'percent')
         const isCharging = await invoke("is_charging");
-        let batasan = 39
+        
+        setBattery(percent);
         setCharging(isCharging);
+        
+        console.log(percent,'percent', isCharging ? 'charging' : 'not charging');
+        
+        let batasan = 39;
+        
         if (percent < batasan && !notified) {
           enqueueNotification(
             "Baterai MacBook rendah",
@@ -128,22 +138,9 @@ function App() {
         setBattery(null);
         setCharging(null);
       }
-    }, 100); // cek setiap 100ms
+    }, 500); // cek setiap 500ms untuk realtime charging status
     return () => clearInterval(interval);
   }, [notified]);
-
-  // Polling status casan (charging) tiap 5 detik (realtime)
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        const isCharging = await invoke("is_charging");
-        setCharging(isCharging);
-      } catch (e) {
-        setCharging(null);
-      }
-    }, 5000); // cek setiap 5 detik
-    return () => clearInterval(interval);
-  }, []);
 
 
   return (
