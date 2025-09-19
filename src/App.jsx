@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/core";
 import {
   isPermissionGranted,
@@ -103,8 +102,9 @@ function App() {
         setBattery(percent);
         console.log(percent,'percent')
         const isCharging = await invoke("is_charging");
+        let batasan = 39
         setCharging(isCharging);
-        if (percent < 39 && !notified) {
+        if (percent < batasan && !notified) {
           enqueueNotification(
             "Baterai MacBook rendah",
             `Baterai tinggal ${Math.round(percent)}%. Segera cas laptop!`
@@ -121,14 +121,14 @@ function App() {
         // Matikan notifikasi jika charger terpasang
         if (isCharging && notified) {
           setNotified(false);
-        } else if ((percent <= 39 || (percent > 39 && percent <= 80) || !isCharging) && notified) {
+        } else if ((percent <= batasan || (percent > batasan && percent <= 80) || !isCharging) && notified) {
           setNotified(false);
         }
       } catch (e) {
         setBattery(null);
         setCharging(null);
       }
-    }, 100); // cek setiap 10 menit
+    }, 100); // cek setiap 100ms
     return () => clearInterval(interval);
   }, [notified]);
 

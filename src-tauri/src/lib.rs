@@ -63,24 +63,106 @@ fn is_charging() -> Result<bool, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        // System tray diatur lewat tauri.conf.json, tidak perlu .system_tray()
         .setup(|app| {
             use tauri::Manager;
 
             let window = app.get_webview_window("main").unwrap();
             let window_ = window.clone();
+            let window_for_tray = window.clone();
+            let app_handle = app.handle().clone();
+
+            // Sembunyikan window saat aplikasi pertama kali dijalankan
+            window.hide().unwrap();
 
             window.on_window_event(move |event| {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    window_.hide().unwrap();
+                match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        window_.hide().unwrap();
+                    }
+                    _ => {}
                 }
             });
+
+            // Handle tray icon click untuk show/hide window dan menu
+            let tray = app.tray_by_id("main").unwrap();
+            let window_for_menu = window_for_tray.clone();
+            let app_handle_for_menu = app_handle.clone();
+            let tray_for_menu = tray.clone();
+            
+            // Buat menu tray
+            let show_hide = tauri::menu::MenuItemBuilder::with_id("show", "Show").build(app)?;
+            let separator = tauri::menu::PredefinedMenuItem::separator(app)?;
+            let quit = tauri::menu::MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+            let menu = tauri::menu::MenuBuilder::new(app)
+                .items(&[&show_hide, &separator, &quit])
+                .build()?;
+            let _ = tray.set_menu(Some(menu));
+
+            tray.on_tray_icon_event(move |_tray, event| {
+                match event {
+                    tauri::tray::TrayIconEvent::Click { 
+                        button: tauri::tray::MouseButton::Left,
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        ..
+                    } => {
+                        let window = &window_for_tray;
+                        if window.is_visible().unwrap_or(false) {
+                            window.hide().unwrap();
+                        } else {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                            let _ = window.unminimize();
+                        }
+                    }
+                    _ => {}
+                }
+            });
+
+            // Handle menu click events
+            tray.on_menu_event(move |app, event| {
+                match event.id().as_ref() {
+                    "show" => {
+                        let window = &window_for_menu;
+                        if window.is_visible().unwrap_or(false) {
+                            // Hide window dan ubah menu ke "Show"
+                            let _ = window.hide();
+                            let new_show_hide = tauri::menu::MenuItemBuilder::with_id("show", "Show").build(app).unwrap();
+                            let separator = tauri::menu::PredefinedMenuItem::separator(app).unwrap();
+                            let quit = tauri::menu::MenuItemBuilder::with_id("quit", "Quit").build(app).unwrap();
+                            let new_menu = tauri::menu::MenuBuilder::new(app)
+                                .items(&[&new_show_hide, &separator, &quit])
+                                .build().unwrap();
+                            let _ = tray_for_menu.set_menu(Some(new_menu));
+                        } else {
+                            // Show window dan ubah menu ke "Hide"
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                            let _ = window.unminimize();
+                            let new_show_hide = tauri::menu::MenuItemBuilder::with_id("show", "Hide").build(app).unwrap();
+                            let separator = tauri::menu::PredefinedMenuItem::separator(app).unwrap();
+                            let quit = tauri::menu::MenuItemBuilder::with_id("quit", "Quit").build(app).unwrap();
+                            let new_menu = tauri::menu::MenuBuilder::new(app)
+                                .items(&[&new_show_hide, &separator, &quit])
+                                .build().unwrap();
+                            let _ = tray_for_menu.set_menu(Some(new_menu));
+                        }
+                    }
+                    "quit" => {
+                        app_handle_for_menu.exit(0);
+                    }
+                    _ => {}
+                }
+            });
+
+            // Prevent app from quitting when all windows are closed
+            let _ = app_handle.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             Ok(())
         })
+    .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
     .plugin(tauri_plugin_notification::init())
     .plugin(tauri_plugin_opener::init())
-    .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
     .invoke_handler(tauri::generate_handler![greet, get_battery_percentage, is_charging,  get_battery_condition])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
