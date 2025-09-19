@@ -1,4 +1,63 @@
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::Manager;
+
+// Global state untuk audio
+static AUDIO_ENABLED: AtomicBool = AtomicBool::new(true);
+
+#[tauri::command]
+fn show_main_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = window.unminimize();
+        Ok(())
+    } else {
+        Err("Main window not found".to_string())
+    }
+}
+
+#[tauri::command]
+fn toggle_audio() -> bool {
+    let current = AUDIO_ENABLED.load(Ordering::SeqCst);
+    let new_state = !current;
+    AUDIO_ENABLED.store(new_state, Ordering::SeqCst);
+    new_state
+}
+
+#[tauri::command]
+fn is_audio_enabled() -> bool {
+    AUDIO_ENABLED.load(Ordering::SeqCst)
+}
+
+#[tauri::command]
+fn send_native_notification(title: String, body: String) -> Result<(), String> {
+    // Gunakan script yang lebih sederhana tanpa bundle identifier
+    let script = format!(
+        r#"display notification "{}" with title "{}""#,
+        body.replace("\"", "\\\""), 
+        title.replace("\"", "\\\"")
+    );
+    
+    println!("Executing AppleScript: {}", script);
+    
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .map_err(|e| format!("Failed to run osascript: {}", e))?;
+    
+    println!("AppleScript output: {:?}", output);
+    
+    if output.status.success() {
+        println!("✅ Native notification sent successfully");
+        Ok(())
+    } else {
+        let error_msg = String::from_utf8_lossy(&output.stderr);
+        println!("❌ AppleScript failed: {}", error_msg);
+        Err(format!("AppleScript failed: {}", error_msg))
+    }
+}
 
 #[tauri::command]
 fn get_battery_condition() -> Result<String, String> {
@@ -104,12 +163,14 @@ pub fn run() {
             let app_handle_for_menu = app_handle.clone();
             let tray_for_menu = tray.clone();
             
-            // Buat menu tray
+            // Buat menu tray dengan audio toggle
             let show_hide = tauri::menu::MenuItemBuilder::with_id("show", "Show").build(app)?;
-            let separator = tauri::menu::PredefinedMenuItem::separator(app)?;
+            let separator1 = tauri::menu::PredefinedMenuItem::separator(app)?;
+            let audio_toggle = tauri::menu::MenuItemBuilder::with_id("toggle_audio", "🔊 Audio ON").build(app)?;
+            let separator2 = tauri::menu::PredefinedMenuItem::separator(app)?;
             let quit = tauri::menu::MenuItemBuilder::with_id("quit", "Quit").build(app)?;
             let menu = tauri::menu::MenuBuilder::new(app)
-                .items(&[&show_hide, &separator, &quit])
+                .items(&[&show_hide, &separator1, &audio_toggle, &separator2, &quit])
                 .build()?;
             let _ = tray.set_menu(Some(menu));
 
@@ -162,6 +223,23 @@ pub fn run() {
                             let _ = tray_for_menu.set_menu(Some(new_menu));
                         }
                     }
+                    "toggle_audio" => {
+                        let new_state = toggle_audio();
+                        let audio_text = if new_state { "🔊 Audio ON" } else { "🔇 Audio OFF" };
+                        
+                        // Rebuild menu dengan status audio yang baru
+                        let window = &window_for_menu;
+                        let show_text = if window.is_visible().unwrap_or(false) { "Hide" } else { "Show" };
+                        let show_hide = tauri::menu::MenuItemBuilder::with_id("show", show_text).build(app).unwrap();
+                        let separator1 = tauri::menu::PredefinedMenuItem::separator(app).unwrap();
+                        let audio_toggle = tauri::menu::MenuItemBuilder::with_id("toggle_audio", audio_text).build(app).unwrap();
+                        let separator2 = tauri::menu::PredefinedMenuItem::separator(app).unwrap();
+                        let quit = tauri::menu::MenuItemBuilder::with_id("quit", "Quit").build(app).unwrap();
+                        let new_menu = tauri::menu::MenuBuilder::new(app)
+                            .items(&[&show_hide, &separator1, &audio_toggle, &separator2, &quit])
+                            .build().unwrap();
+                        let _ = tray_for_menu.set_menu(Some(new_menu));
+                    }
                     "quit" => {
                         app_handle_for_menu.exit(0);
                     }
@@ -177,7 +255,7 @@ pub fn run() {
     .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
     .plugin(tauri_plugin_notification::init())
     .plugin(tauri_plugin_opener::init())
-    .invoke_handler(tauri::generate_handler![greet, get_battery_percentage, is_charging,  get_battery_condition])
+    .invoke_handler(tauri::generate_handler![greet, get_battery_percentage, is_charging, get_battery_condition, send_native_notification, toggle_audio, is_audio_enabled, show_main_window])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }
